@@ -1,7 +1,6 @@
 timezone: Asia/Manila
 currency: USD
 monthly_budget: 20
-budget_alerts: [50, 80, 100]    # percent of monthly_budget; each fires once per month
 critical_resources: []          # resource IDs (or "provider/name") auto-stop never touches
 database: cloud-control.db
 
@@ -22,11 +21,6 @@ apps:
     critical: false                     # true = auto-stop never touches this app
   buddibucks:
     match_tags: { app: buddibucks }
-
-schedule:
-  health_every: 5m
-  cost_every: 6h
-  digest_at: "09:00"            # in `timezone`
 
 dev:
   fake_provider: true           # demo resources; turn off once real providers are configured

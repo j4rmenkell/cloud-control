@@ -1,7 +1,9 @@
-// Package service is the core: it owns the resource inventory, runs health
-// and cost polls, enforces budget alerts and performs audited control actions.
-// The Discord bot and the scheduler are thin layers over it.
-package service
+// Package core is the heart of cloud-control: it owns the resource
+// inventory, runs health and cost polls, enforces budget alerts and performs
+// audited control actions.
+// It also maps resources to apps and defines the transport-neutral
+// notification model. The Discord bot and cron jobs are thin layers over it.
+package core
 
 import (
 	"context"
@@ -13,13 +15,14 @@ import (
 	"sync"
 	"time"
 
-	"cloud-control/internal/apps"
 	"cloud-control/internal/config"
-	"cloud-control/internal/format"
-	"cloud-control/internal/notify"
 	"cloud-control/internal/provider"
 	"cloud-control/internal/store"
 )
+
+// budgetAlertPercents are the thresholds (percent of monthly_budget) that
+// each fire one alert per month.
+var budgetAlertPercents = []float64{50, 80, 100}
 
 // CostHook is called after every cost poll (the auto-stop engine).
 type CostHook interface {
@@ -29,8 +32,8 @@ type CostHook interface {
 type Service struct {
 	cfg       *config.Config
 	store     *store.Store
-	apps      *apps.Resolver
-	notifier  notify.Notifier
+	apps      *Resolver
+	notifier  Notifier
 	log       *slog.Logger
 	providers map[string]provider.Provider
 	order     []string
@@ -47,8 +50,8 @@ type Service struct {
 type Options struct {
 	Config    *config.Config
 	Store     *store.Store
-	Apps      *apps.Resolver
-	Notifier  notify.Notifier
+	Apps      *Resolver
+	Notifier  Notifier
 	Logger    *slog.Logger
 	Providers []provider.Provider
 	Now       func() time.Time // defaults to time.Now
@@ -76,7 +79,7 @@ func (s *Service) SetCostHook(h CostHook) { s.hook = h }
 
 func (s *Service) Config() *config.Config { return s.cfg }
 func (s *Service) Store() *store.Store    { return s.store }
-func (s *Service) Apps() *apps.Resolver   { return s.apps }
+func (s *Service) Apps() *Resolver        { return s.apps }
 func (s *Service) ProviderNames() []string {
 	return append([]string(nil), s.order...)
 }
@@ -154,7 +157,7 @@ func (s *Service) Inventory(ctx context.Context) []provider.Resource {
 func sortResources(rs []provider.Resource) {
 	sort.SliceStable(rs, func(i, j int) bool {
 		a, b := rs[i], rs[j]
-		if apps.Display(a.App) != apps.Display(b.App) {
+		if Display(a.App) != Display(b.App) {
 			// unassigned sorts last
 			if a.App == "" || b.App == "" {
 				return b.App == ""
@@ -185,12 +188,12 @@ func (s *Service) Can(r provider.Resource, a provider.Action) bool {
 	return ok && provider.Can(p, r, a)
 }
 
-// Filter returns resources matching app ("" = all, apps.Unassigned = none)
+// Filter returns resources matching app ("" = all,  Unassigned = none)
 // and provider ("" = all).
 func Filter(rs []provider.Resource, app, prov string) []provider.Resource {
 	var out []provider.Resource
 	for _, r := range rs {
-		if app != "" && apps.Display(r.App) != app {
+		if app != "" && Display(r.App) != app {
 			continue
 		}
 		if prov != "" && r.Provider != prov {
@@ -291,30 +294,30 @@ func (s *Service) alertTransitions(ctx context.Context, ts []Transition) {
 	}
 	for _, app := range order {
 		group := byApp[app]
-		style := notify.Good
+		style := Good
 		var lines []string
 		for _, t := range group {
 			if t.To.State == provider.Down {
-				style = notify.Bad
-			} else if t.To.State != provider.Healthy && style != notify.Bad {
-				style = notify.Warn
+				style = Bad
+			} else if t.To.State != provider.Healthy && style != Bad {
+				style = Warn
 			}
 			from := "new"
 			if t.From != "" {
-				from = format.HealthEmoji(t.From) + " " + string(t.From)
+				from = HealthEmoji(t.From) + " " + string(t.From)
 			}
 			line := fmt.Sprintf("**%s** (%s) %s → %s %s", t.Resource.Name, t.Resource.Provider, from,
-				format.HealthEmoji(t.To.State), t.To.State)
+				HealthEmoji(t.To.State), t.To.State)
 			if t.To.Detail != "" && t.To.State != provider.Healthy {
 				line += "\n> " + truncate(t.To.Detail, 200)
 			}
 			lines = append(lines, line)
 		}
-		title := fmt.Sprintf("[%s] Health changed", apps.Display(app))
+		title := fmt.Sprintf("[%s] Health changed", Display(app))
 		if len(group) == 1 {
-			title = fmt.Sprintf("[%s] %s is %s", apps.Display(app), group[0].Resource.Name, group[0].To.State)
+			title = fmt.Sprintf("[%s] %s is %s", Display(app), group[0].Resource.Name, group[0].To.State)
 		}
-		s.send(ctx, notify.Target{Kind: notify.Alerts, App: app}, notify.Message{
+		s.send(ctx, Target{Kind: Alerts, App: app}, Message{
 			Title: title, Body: strings.Join(lines, "\n"), Style: style,
 		})
 	}
@@ -351,8 +354,8 @@ type CostSummary struct {
 	Failed    map[string]string              // provider → error message
 	Total     float64                        // sum of MTD across reports
 	Forecast  float64
-	Known     bool // every provider reported; Total is trustworthy
-	Estimated bool // at least one report is estimated
+	Known     bool               // every provider reported; Total is trustworthy
+	Estimated bool               // at least one report is estimated
 	ByApp     map[string]float64 // app ("" = unassigned) → MTD
 	Budget    float64
 	Percent   float64 // Total / Budget × 100
@@ -395,10 +398,10 @@ func (s *Service) PollCost(ctx context.Context) CostSummary {
 		for _, p := range sortedKeys(failed) {
 			lines = append(lines, fmt.Sprintf("**%s**: %s", p, truncate(failed[p], 200)))
 		}
-		s.send(ctx, notify.Target{Kind: notify.Alerts}, notify.Message{
+		s.send(ctx, Target{Kind: Alerts}, Message{
 			Title: "⚠️ Cost fetch failed — total spend unknown",
 			Body:  strings.Join(lines, "\n") + "\n\nBudget alerts and auto-stop are skipped until all providers report.",
-			Style: notify.Warn,
+			Style: Warn,
 		})
 	} else {
 		s.checkBudget(ctx, sum)
@@ -464,7 +467,7 @@ func (s *Service) summarize(ctx context.Context, reports map[string]provider.Cos
 
 func (s *Service) checkBudget(ctx context.Context, sum CostSummary) {
 	var crossed []float64
-	for _, p := range s.cfg.BudgetAlerts {
+	for _, p := range budgetAlertPercents {
 		if sum.Percent < p {
 			continue
 		}
@@ -481,15 +484,15 @@ func (s *Service) checkBudget(ctx context.Context, sum CostSummary) {
 		return
 	}
 	top := crossed[len(crossed)-1]
-	style := notify.Warn
+	style := Warn
 	if top >= 100 {
-		style = notify.Bad
+		style = Bad
 	}
-	s.send(ctx, notify.Target{Kind: notify.Alerts}, notify.Message{
+	s.send(ctx, Target{Kind: Alerts}, Message{
 		Title: fmt.Sprintf("💸 Budget %.0f%% reached", top),
 		Body: fmt.Sprintf("Month-to-date spend is **%s** of %s (%.0f%%)\n%s\nForecast: %s",
-			format.Money(sum.Total, sum.Currency, sum.Estimated), format.Amount(sum.Budget, sum.Currency), sum.Percent,
-			format.Bar(sum.Percent), format.Money(sum.Forecast, sum.Currency, sum.Estimated)),
+			Money(sum.Total, sum.Currency, sum.Estimated), Amount(sum.Budget, sum.Currency), sum.Percent,
+			Bar(sum.Percent), Money(sum.Forecast, sum.Currency, sum.Estimated)),
 		Style:        style,
 		MentionOwner: top >= 100,
 		Footer:       "as of " + sum.AsOf.In(s.cfg.Location).Format("Jan 2 15:04 MST"),
@@ -530,16 +533,16 @@ func (s *Service) recordAction(ctx context.Context, actor, action string, r prov
 		s.log.Error("audit", "err", aerr)
 	}
 	s.log.Info("control action", "actor", actor, "action", action, "resource", r.ID, "result", result, "err", err)
-	msg := notify.Message{
-		Title: fmt.Sprintf("[%s] %s %s → %s", apps.Display(r.App), action, r.Name, result),
+	msg := Message{
+		Title: fmt.Sprintf("[%s] %s %s → %s", Display(r.App), action, r.Name, result),
 		Body:  fmt.Sprintf("By %s · %s/%s", ActorMention(actor), r.Provider, r.Type),
-		Style: notify.Good,
+		Style: Good,
 	}
 	if err != nil {
-		msg.Style = notify.Bad
+		msg.Style = Bad
 		msg.Body += "\n> " + truncate(err.Error(), 300)
 	}
-	s.send(ctx, notify.Target{Kind: notify.Alerts, App: r.App}, msg)
+	s.send(ctx, Target{Kind: Alerts, App: r.App}, msg)
 }
 
 // ActorMention renders a Discord user ID as a mention; system actors as-is.
@@ -563,46 +566,46 @@ func (s *Service) Digest(ctx context.Context) error {
 	}
 	counts := map[string]map[provider.HealthState]int{}
 	for _, v := range views {
-		app := apps.Display(v.Resource.App)
+		app := Display(v.Resource.App)
 		if counts[app] == nil {
 			counts[app] = map[provider.HealthState]int{}
 		}
 		counts[app][v.Health.State]++
 	}
-	msg := notify.Message{
+	msg := Message{
 		Title: "📊 Daily digest — " + s.Now().Format("Mon Jan 2"),
 		Body: fmt.Sprintf("**MTD:** %s of %s (%.0f%%) %s\n**Forecast:** %s",
-			format.Money(sum.Total, sum.Currency, sum.Estimated), format.Amount(sum.Budget, sum.Currency),
-			sum.Percent, format.Bar(sum.Percent), format.Money(sum.Forecast, sum.Currency, sum.Estimated)),
+			Money(sum.Total, sum.Currency, sum.Estimated), Amount(sum.Budget, sum.Currency),
+			sum.Percent, Bar(sum.Percent), Money(sum.Forecast, sum.Currency, sum.Estimated)),
 		Footer: "as of " + sum.AsOf.In(s.cfg.Location).Format("Jan 2 15:04 MST"),
 	}
 	if !sum.Known {
 		msg.Body += "\n⚠️ Missing cost data: " + strings.Join(sortedKeys(sum.Failed), ", ")
-		msg.Style = notify.Warn
+		msg.Style = Warn
 	}
-	for _, app := range append(s.apps.Names(), apps.Unassigned) {
+	for _, app := range append(s.apps.Names(), Unassigned) {
 		c, ok := counts[app]
 		cost, hasCost := sum.ByApp[appKey(app)]
 		if !ok && !hasCost {
 			continue
 		}
 		val := fmt.Sprintf("%s %d  %s %d  %s %d  %s %d\nMTD %s",
-			format.HealthEmoji(provider.Healthy), c[provider.Healthy], format.HealthEmoji(provider.Degraded), c[provider.Degraded],
-			format.HealthEmoji(provider.Down), c[provider.Down], format.HealthEmoji(provider.Unknown), c[provider.Unknown],
-			format.Amount(cost, sum.Currency))
-		msg.Fields = append(msg.Fields, notify.Field{Name: app, Value: val, Inline: true})
+			HealthEmoji(provider.Healthy), c[provider.Healthy], HealthEmoji(provider.Degraded), c[provider.Degraded],
+			HealthEmoji(provider.Down), c[provider.Down], HealthEmoji(provider.Unknown), c[provider.Unknown],
+			Amount(cost, sum.Currency))
+		msg.Fields = append(msg.Fields, Field{Name: app, Value: val, Inline: true})
 	}
-	return s.notifier.Send(ctx, notify.Target{Kind: notify.Digest}, msg)
+	return s.notifier.Send(ctx, Target{Kind: Digest}, msg)
 }
 
 func appKey(display string) string {
-	if display == apps.Unassigned {
+	if display == Unassigned {
 		return ""
 	}
 	return display
 }
 
-func (s *Service) send(ctx context.Context, t notify.Target, m notify.Message) {
+func (s *Service) send(ctx context.Context, t Target, m Message) {
 	if err := s.notifier.Send(ctx, t, m); err != nil {
 		s.log.Error("send notification", "title", m.Title, "err", err)
 	}

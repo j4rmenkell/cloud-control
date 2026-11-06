@@ -1,6 +1,7 @@
-// Package auth holds the owner-only access check applied to every command,
+package discord
+
+// The owner-only access check, applied to every command,
 // autocomplete request and button press.
-package auth
 
 import "strings"
 

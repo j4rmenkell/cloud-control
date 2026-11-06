@@ -1,6 +1,6 @@
-// Package bot is the Discord front end: slash commands, autocomplete,
+// Package discord is the Discord front end: slash commands, autocomplete,
 // confirm buttons, and the notifier that posts alerts.
-package bot
+package discord
 
 import (
 	"context"
@@ -15,11 +15,10 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	"cloud-control/internal/auth"
 	"cloud-control/internal/autostop"
 	"cloud-control/internal/config"
+	"cloud-control/internal/core"
 	"cloud-control/internal/provider"
-	"cloud-control/internal/service"
 )
 
 const (
@@ -30,9 +29,9 @@ const (
 
 type Bot struct {
 	cfg     *config.Config
-	svc     *service.Service
+	svc     *core.Service
 	engine  *autostop.Engine
-	owner   auth.Owner
+	owner   Owner
 	log     *slog.Logger
 	session *discordgo.Session
 
@@ -49,11 +48,11 @@ type pendingAction struct {
 	timer       *time.Timer
 }
 
-func New(cfg *config.Config, svc *service.Service, log *slog.Logger) *Bot {
+func New(cfg *config.Config, svc *core.Service, log *slog.Logger) *Bot {
 	return &Bot{
 		cfg:     cfg,
 		svc:     svc,
-		owner:   auth.Owner{UserID: cfg.Secrets.OwnerDiscordUserID, GuildID: cfg.Secrets.DiscordGuildID},
+		owner:   Owner{UserID: cfg.Secrets.OwnerDiscordUserID, GuildID: cfg.Secrets.DiscordGuildID},
 		log:     log,
 		pending: map[string]*pendingAction{},
 		ctx:     context.Background(),
@@ -62,7 +61,7 @@ func New(cfg *config.Config, svc *service.Service, log *slog.Logger) *Bot {
 
 // SetService attaches the core service (the service needs the bot as its
 // notifier, so the two are wired after construction).
-func (b *Bot) SetService(s *service.Service) { b.svc = s }
+func (b *Bot) SetService(s *core.Service) { b.svc = s }
 
 // SetEngine wires the auto-stop engine (created after the bot because the
 // engine posts through the bot's notifier).

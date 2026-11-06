@@ -14,12 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"cloud-control/internal/apps"
 	"cloud-control/internal/config"
-	"cloud-control/internal/format"
-	"cloud-control/internal/notify"
+	"cloud-control/internal/core"
 	"cloud-control/internal/provider"
-	"cloud-control/internal/service"
 	"cloud-control/internal/store"
 )
 
@@ -31,7 +28,7 @@ const CancelPrefix = "autostop-cancel:"
 
 const settingEnabled = "autostop.enabled"
 
-// Controller is the subset of service.Service the engine needs.
+// Controller is the subset of core.Service the engine needs.
 type Controller interface {
 	Inventory(ctx context.Context) []provider.Resource
 	Can(r provider.Resource, a provider.Action) bool
@@ -43,9 +40,9 @@ type Timer interface{ Stop() bool }
 type Options struct {
 	Config    *config.Config
 	Store     *store.Store
-	Apps      *apps.Resolver
+	Apps      *core.Resolver
 	Control   Controller
-	Notifier  notify.Notifier
+	Notifier  core.Notifier
 	Logger    *slog.Logger
 	Now       func() time.Time
 	AfterFunc func(d time.Duration, f func()) Timer // defaults to time.AfterFunc
@@ -54,9 +51,9 @@ type Options struct {
 type Engine struct {
 	cfg       *config.Config
 	store     *store.Store
-	apps      *apps.Resolver
+	apps      *core.Resolver
 	ctl       Controller
-	notifier  notify.Notifier
+	notifier  core.Notifier
 	log       *slog.Logger
 	now       func() time.Time
 	afterFunc func(time.Duration, func()) Timer
@@ -178,14 +175,14 @@ func (e *Engine) Plan(ctx context.Context) []store.PlanItem {
 	return out
 }
 
-// OnCost implements service.CostHook: evaluate the trigger after a cost poll.
-func (e *Engine) OnCost(ctx context.Context, sum service.CostSummary) {
+// OnCost implements core.CostHook: evaluate the trigger after a cost poll.
+func (e *Engine) OnCost(ctx context.Context, sum core.CostSummary) {
 	if err := e.evaluate(ctx, sum); err != nil {
 		e.log.Error("auto-stop evaluate", "err", err)
 	}
 }
 
-func (e *Engine) evaluate(ctx context.Context, sum service.CostSummary) error {
+func (e *Engine) evaluate(ctx context.Context, sum core.CostSummary) error {
 	if on, _ := e.Enabled(ctx); !on {
 		return nil
 	}
@@ -214,10 +211,10 @@ func (e *Engine) evaluate(ctx context.Context, sum service.CostSummary) error {
 		"resources", len(plan), "dry_run", run.DryRun)
 
 	if len(plan) == 0 {
-		e.send(ctx, notify.Message{
+		e.send(ctx, core.Message{
 			Title:        "🛑 Auto-stop threshold reached — nothing to stop",
 			Body:         e.spendLine(sum) + "\nNo running, non-critical resources support Stop.",
-			Style:        notify.Bad,
+			Style:        core.Bad,
 			MentionOwner: true,
 		})
 		return nil
@@ -229,22 +226,22 @@ func (e *Engine) evaluate(ctx context.Context, sum service.CostSummary) error {
 	}
 	body := e.spendLine(sum) + "\n\n**Will stop:**\n" + planLines(plan) +
 		fmt.Sprintf("\n\nRuns %s unless cancelled. Cancelling skips auto-stop for the rest of the month (re-enable with `/autostop on`).",
-			format.RelTime(run.Deadline))
+			core.RelTime(run.Deadline))
 	if run.DryRun {
 		body += "\n\n_Dry run: nothing will actually be stopped. Set `auto_stop.dry_run: false` to arm it._"
 	}
-	e.send(ctx, notify.Message{
-		Title: title, Body: body, Style: notify.Bad, MentionOwner: true,
-		Buttons: []notify.Button{{Label: "Cancel auto-stop", CustomID: CancelPrefix + month, Danger: true}},
+	e.send(ctx, core.Message{
+		Title: title, Body: body, Style: core.Bad, MentionOwner: true,
+		Buttons: []core.Button{{Label: "Cancel auto-stop", CustomID: CancelPrefix + month, Danger: true}},
 	})
 	e.schedule(month, run.Deadline)
 	return nil
 }
 
-func (e *Engine) spendLine(sum service.CostSummary) string {
+func (e *Engine) spendLine(sum core.CostSummary) string {
 	return fmt.Sprintf("Month-to-date spend **%s** is %.0f%% of the %s budget (threshold %.0f%%).",
-		format.Money(sum.Total, sum.Currency, sum.Estimated), sum.Percent,
-		format.Amount(sum.Budget, sum.Currency), e.cfg.AutoStop.ThresholdPercent)
+		core.Money(sum.Total, sum.Currency, sum.Estimated), sum.Percent,
+		core.Amount(sum.Budget, sum.Currency), e.cfg.AutoStop.ThresholdPercent)
 }
 
 func (e *Engine) schedule(month string, deadline time.Time) {
@@ -285,11 +282,11 @@ func (e *Engine) Cancel(ctx context.Context, month, actor string) (bool, error) 
 		Result: "cancelled", Detail: "month " + month}); err != nil {
 		e.log.Error("audit", "err", err)
 	}
-	e.send(ctx, notify.Message{
+	e.send(ctx, core.Message{
 		Title: "✅ Auto-stop cancelled",
 		Body: fmt.Sprintf("Cancelled by %s. Auto-stop is skipped for %s unless re-enabled with `/autostop on`.",
-			service.ActorMention(actor), month),
-		Style: notify.Good,
+			core.ActorMention(actor), month),
+		Style: core.Good,
 	})
 	return true, nil
 }
@@ -354,7 +351,7 @@ func (e *Engine) execute(ctx context.Context, month string) {
 	e.send(ctx, summaryMessage(run.DryRun, outcomes))
 }
 
-func summaryMessage(dry bool, outs []outcome) notify.Message {
+func summaryMessage(dry bool, outs []outcome) core.Message {
 	groups := map[string][]outcome{}
 	for _, o := range outs {
 		groups[o.result] = append(groups[o.result], o)
@@ -368,7 +365,7 @@ func summaryMessage(dry bool, outs []outcome) notify.Message {
 		label := map[string]string{"stopped": "✅ Stopped", "dry-run": "🧪 Would stop", "failed": "❌ Failed", "skipped": "⏭️ Skipped"}[k]
 		lines := []string{fmt.Sprintf("**%s (%d)**", label, len(g))}
 		for _, o := range g {
-			l := fmt.Sprintf("• [%s] %s (%s)", apps.Display(o.item.App), o.item.Name, o.item.Provider)
+			l := fmt.Sprintf("• [%s] %s (%s)", core.Display(o.item.App), o.item.Name, o.item.Provider)
 			if o.detail != "" && k != "dry-run" {
 				l += " — " + o.detail
 			}
@@ -376,13 +373,13 @@ func summaryMessage(dry bool, outs []outcome) notify.Message {
 		}
 		parts = append(parts, strings.Join(lines, "\n"))
 	}
-	m := notify.Message{Title: "🛑 Auto-stop finished", Body: strings.Join(parts, "\n\n"), Style: notify.Good}
+	m := core.Message{Title: "🛑 Auto-stop finished", Body: strings.Join(parts, "\n\n"), Style: core.Good}
 	if dry {
 		m.Title = "🧪 Auto-stop dry run finished — nothing was stopped"
-		m.Style = notify.Info
+		m.Style = core.Info
 	}
 	if len(groups["failed"]) > 0 {
-		m.Style = notify.Bad
+		m.Style = core.Bad
 		m.MentionOwner = true
 	}
 	return m
@@ -423,10 +420,10 @@ func ParseCancelID(id string) (string, bool) {
 
 func planLines(plan []store.PlanItem) string {
 	sorted := append([]store.PlanItem(nil), plan...)
-	sort.SliceStable(sorted, func(i, j int) bool { return apps.Display(sorted[i].App) < apps.Display(sorted[j].App) })
+	sort.SliceStable(sorted, func(i, j int) bool { return core.Display(sorted[i].App) < core.Display(sorted[j].App) })
 	var lines []string
 	for _, p := range sorted {
-		lines = append(lines, fmt.Sprintf("• [%s] %s (%s)", apps.Display(p.App), p.Name, p.Provider))
+		lines = append(lines, fmt.Sprintf("• [%s] %s (%s)", core.Display(p.App), p.Name, p.Provider))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -449,8 +446,8 @@ func humanDuration(d time.Duration) string {
 	return fmt.Sprintf("%d min", int(d.Minutes()))
 }
 
-func (e *Engine) send(ctx context.Context, m notify.Message) {
-	if err := e.notifier.Send(ctx, notify.Target{Kind: notify.Alerts}, m); err != nil {
+func (e *Engine) send(ctx context.Context, m core.Message) {
+	if err := e.notifier.Send(ctx, core.Target{Kind: core.Alerts}, m); err != nil {
 		e.log.Error("send auto-stop notification", "err", err)
 	}
 }

@@ -4,25 +4,39 @@ Discovers cloud resources, checks their health, tracks month-to-date cost, and
 lets the owner stop/start resources from a private Discord server, with budget
 auto-stop.
 
-**Status (v0.1 in progress):** core, Discord bot, scheduler and auto-stop run
-end-to-end on the fake provider. Azure, GCP, Cloudflare and Resend providers
-are not implemented yet.
+**Status (v0.1 in progress):** core, Discord bot, scheduled jobs and auto-stop
+run end-to-end on the fake provider. Azure, GCP, Cloudflare and Resend
+providers are not implemented yet.
 
 ```mermaid
 flowchart LR
   subgraph Providers
     F[fake] & AZ[azure*] & G[gcp*] & CF[cloudflare*] & R[resend*]
   end
-  Providers --> S[service<br/>inventory · health · cost · control]
-  A[apps resolver] --> S
-  S <--> DB[(SQLite)]
-  SCH[scheduler] --> S
-  S -- cost hook --> AS[auto-stop engine]
+  Providers --> C[core<br/>inventory · apps · health · cost · control]
+  C <--> DB[(SQLite)]
+  J[cron jobs] --> C
+  C -- cost hook --> AS[autostop]
   AS <--> DB
-  S & AS -- notify --> B[Discord bot]
-  B -- commands/buttons --> S & AS
+  C & AS -- Notifier --> D[discord]
+  D -- commands/buttons --> C & AS
 ```
 <sub>* not implemented yet</sub>
+
+## Layout
+
+| Package | Responsibility |
+|---|---|
+| `cmd/cloud-control` | wiring and the three cron jobs (health 5 min, cost 6 h, digest 09:00) |
+| `internal/config` | `config.yaml` + `.env` |
+| `internal/provider` | the `Provider` interface; `fake/` for tests and local dev |
+| `internal/store` | SQLite persistence |
+| `internal/core` | inventory, app grouping, health, cost, budget alerts, audited control |
+| `internal/autostop` | budget auto-stop state machine |
+| `internal/discord` | slash commands, buttons, owner check, alert rendering |
+
+Providers report, core decides, autostop enforces, discord talks to you, store
+remembers.
 
 ## Apps
 
@@ -57,9 +71,9 @@ auto-stop, set a low `monthly_budget` (the demo spend is $4.20) and keep
 | Command | |
 |---|---|
 | `/ping` | latency, uptime, last polls |
-| `/status [app] [refresh]` | resources by app with health |
+| `/status [app]` | resources by app with health |
 | `/resources [provider] [app]` | short IDs, available actions, 🛡️ critical |
-| `/cost [app] [refresh]` | MTD/forecast per provider and per app |
+| `/cost [app]` | MTD/forecast per provider and per app |
 | `/stop`, `/start <resource>` | autocomplete → confirm within 60s → audited |
 | `/audit [n]` | recent actions |
 | `/autostop on\|off\|status` | runtime override, persisted |

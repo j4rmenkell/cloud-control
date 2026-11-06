@@ -1,6 +1,7 @@
-// Package notify defines a transport-neutral message model so the service and
+package core
+
+// This file defines a transport-neutral message model so the service and
 // auto-stop logic can post alerts without depending on Discord.
-package notify
 
 import (
 	"context"

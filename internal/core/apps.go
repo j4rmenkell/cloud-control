@@ -1,6 +1,7 @@
-// Package apps maps resources to the applications they belong to, so health,
+package core
+
+// This file maps resources to the applications they belong to, so health,
 // cost and alerts can be grouped per app rather than per provider.
-package apps
 
 import (
 	"slices"

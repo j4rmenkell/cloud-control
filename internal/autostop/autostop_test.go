@@ -9,12 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"cloud-control/internal/apps"
 	"cloud-control/internal/config"
-	"cloud-control/internal/notify"
+	"cloud-control/internal/core"
 	"cloud-control/internal/provider"
 	"cloud-control/internal/provider/fake"
-	"cloud-control/internal/service"
 	"cloud-control/internal/store"
 )
 
@@ -83,8 +81,8 @@ type harness struct {
 	cfg    *config.Config
 	st     *store.Store
 	fake   *fake.Provider
-	rec    *notify.Recorder
-	svc    *service.Service
+	rec    *core.Recorder
+	svc    *core.Service
 	engine *Engine
 	clock  *clock
 	timers *timers
@@ -120,9 +118,9 @@ func setup(t *testing.T, extraYAML string, dbPath string) *harness {
 	f := fake.Demo()
 	// A second running, non-critical, unassigned resource.
 	f.AddResource(provider.Resource{ID: "fake:aca:scratch-job", Type: "containerapp", Name: "scratch-job", Power: provider.PowerRunning})
-	rec := &notify.Recorder{}
-	res := apps.NewResolver(cfg)
-	svc := service.New(service.Options{Config: cfg, Store: st, Apps: res, Notifier: rec, Now: clk.Now,
+	rec := &core.Recorder{}
+	res := core.NewResolver(cfg)
+	svc := core.New(core.Options{Config: cfg, Store: st, Apps: res, Notifier: rec, Now: clk.Now,
 		Providers: []provider.Provider{f}})
 	tm := &timers{}
 	eng := New(Options{Config: cfg, Store: st, Apps: res, Control: svc, Notifier: rec, Now: clk.Now, AfterFunc: tm.AfterFunc})
@@ -153,7 +151,7 @@ func (h *harness) lastTitle() string {
 	return m[len(m)-1].Message.Title
 }
 
-func findTitle(msgs []notify.Sent, sub string) *notify.Message {
+func findTitle(msgs []core.Sent, sub string) *core.Message {
 	for _, m := range msgs {
 		if strings.Contains(m.Message.Title, sub) {
 			return &m.Message

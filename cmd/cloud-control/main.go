@@ -12,14 +12,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"cloud-control/internal/apps"
 	"cloud-control/internal/autostop"
-	"cloud-control/internal/bot"
 	"cloud-control/internal/config"
+	"cloud-control/internal/core"
+	"cloud-control/internal/discord"
 	"cloud-control/internal/provider"
 	"cloud-control/internal/provider/fake"
-	"cloud-control/internal/scheduler"
-	"cloud-control/internal/service"
 	"cloud-control/internal/store"
 )
 
@@ -61,9 +59,9 @@ func run(cfgPath, envPath string, log *slog.Logger) error {
 		return err
 	}
 
-	resolver := apps.NewResolver(cfg)
-	b := bot.New(cfg, nil, log) // service is attached below; bot is the notifier
-	svc := service.New(service.Options{
+	resolver := core.NewResolver(cfg)
+	b := discord.New(cfg, nil, log) // service is attached below; bot is the notifier
+	svc := core.New(core.Options{
 		Config: cfg, Store: st, Apps: resolver, Notifier: b, Logger: log, Providers: providers,
 	})
 	b.SetService(svc)
@@ -83,11 +81,6 @@ func run(cfgPath, envPath string, log *slog.Logger) error {
 	}
 	defer engine.Stop()
 
-	sched, err := scheduler.New(ctx, cfg, svc, log)
-	if err != nil {
-		return err
-	}
-
 	// Initial polls so /status and /cost have data right away.
 	go func() {
 		if _, err := svc.PollHealth(ctx); err != nil {
@@ -95,13 +88,16 @@ func run(cfgPath, envPath string, log *slog.Logger) error {
 		}
 		svc.PollCost(ctx)
 	}()
-	sched.Start()
+	stopJobs, err := startJobs(ctx, cfg, svc, log)
+	if err != nil {
+		return err
+	}
 	log.Info("cloud-control running", "providers", svc.ProviderNames(), "apps", resolver.Names(),
 		"auto_stop", cfg.AutoStop.Enabled, "dry_run", cfg.AutoStop.IsDryRun())
 
 	<-ctx.Done()
 	log.Info("shutting down")
-	sched.Stop()
+	stopJobs()
 	return nil
 }
 

@@ -1,5 +1,6 @@
-// Package format holds display helpers shared by alerts and bot replies.
-package format
+package core
+
+// Display helpers shared by alerts and bot replies.
 
 import (
 	"fmt"

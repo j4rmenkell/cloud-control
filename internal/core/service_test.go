@@ -1,4 +1,4 @@
-package service
+package core
 
 import (
 	"context"
@@ -7,9 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"cloud-control/internal/apps"
 	"cloud-control/internal/config"
-	"cloud-control/internal/notify"
 	"cloud-control/internal/provider"
 	"cloud-control/internal/provider/fake"
 	"cloud-control/internal/store"
@@ -18,7 +16,7 @@ import (
 type harness struct {
 	svc  *Service
 	fake *fake.Provider
-	rec  *notify.Recorder
+	rec  *Recorder
 	st   *store.Store
 }
 
@@ -40,8 +38,8 @@ apps:
 	}
 	t.Cleanup(func() { st.Close() })
 	f := fake.Demo()
-	rec := &notify.Recorder{}
-	svc := New(Options{Config: cfg, Store: st, Apps: apps.NewResolver(cfg), Notifier: rec, Providers: []provider.Provider{f}})
+	rec := &Recorder{}
+	svc := New(Options{Config: cfg, Store: st, Apps: NewResolver(cfg), Notifier: rec, Providers: []provider.Provider{f}})
 	return &harness{svc, f, rec, st}
 }
 
@@ -177,7 +175,7 @@ func TestDigestGroupsByApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := h.rec.Messages()
-	if len(m) != 1 || m[0].Target.Kind != notify.Digest {
+	if len(m) != 1 || m[0].Target.Kind != Digest {
 		t.Fatalf("digest = %+v", m)
 	}
 	var names []string

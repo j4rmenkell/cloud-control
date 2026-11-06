@@ -16,22 +16,20 @@ import (
 )
 
 type Config struct {
-	Timezone          string             `yaml:"timezone"`
-	Currency          string             `yaml:"currency"`
-	MonthlyBudget     float64            `yaml:"monthly_budget"`
-	BudgetAlerts      []float64          `yaml:"budget_alerts"` // percents; default 50, 80, 100
-	CriticalResources []string           `yaml:"critical_resources"`
-	AutoStop          AutoStop           `yaml:"auto_stop"`
-	Apps              map[string]App     `yaml:"apps"`
-	Database          string             `yaml:"database"`
-	Schedule          Schedule           `yaml:"schedule"`
-	Dev               Dev                `yaml:"dev"`
-	Azure             Azure              `yaml:"azure"`
-	GCP               GCP                `yaml:"gcp"`
-	Cloudflare        Cloudflare         `yaml:"cloudflare"`
-	Resend            Resend             `yaml:"resend"`
-	Secrets           Secrets            `yaml:"-"`
-	Location          *time.Location     `yaml:"-"`
+	Timezone          string         `yaml:"timezone"`
+	Currency          string         `yaml:"currency"`
+	MonthlyBudget     float64        `yaml:"monthly_budget"`
+	CriticalResources []string       `yaml:"critical_resources"`
+	AutoStop          AutoStop       `yaml:"auto_stop"`
+	Apps              map[string]App `yaml:"apps"`
+	Database          string         `yaml:"database"`
+	Dev               Dev            `yaml:"dev"`
+	Azure             Azure          `yaml:"azure"`
+	GCP               GCP            `yaml:"gcp"`
+	Cloudflare        Cloudflare     `yaml:"cloudflare"`
+	Resend            Resend         `yaml:"resend"`
+	Secrets           Secrets        `yaml:"-"`
+	Location          *time.Location `yaml:"-"`
 }
 
 type AutoStop struct {
@@ -53,12 +51,6 @@ type App struct {
 	Resources       []string          `yaml:"resources"`         // full resource IDs or "provider/name"
 	AlertsChannelID string            `yaml:"alerts_channel_id"` // optional; falls back to the global alerts channel
 	Critical        bool              `yaml:"critical"`          // auto-stop never touches this app
-}
-
-type Schedule struct {
-	HealthEvery string `yaml:"health_every"` // default "5m"
-	CostEvery   string `yaml:"cost_every"`   // default "6h"
-	DigestAt    string `yaml:"digest_at"`    // default "09:00"
 }
 
 type Dev struct {
@@ -153,24 +145,11 @@ func (c *Config) applyDefaults() {
 	if c.Currency == "" {
 		c.Currency = "USD"
 	}
-	if len(c.BudgetAlerts) == 0 {
-		c.BudgetAlerts = []float64{50, 80, 100}
-	}
-	sort.Float64s(c.BudgetAlerts)
 	if c.AutoStop.ThresholdPercent == 0 {
 		c.AutoStop.ThresholdPercent = 100
 	}
 	if c.Database == "" {
 		c.Database = "cloud-control.db"
-	}
-	if c.Schedule.HealthEvery == "" {
-		c.Schedule.HealthEvery = "5m"
-	}
-	if c.Schedule.CostEvery == "" {
-		c.Schedule.CostEvery = "6h"
-	}
-	if c.Schedule.DigestAt == "" {
-		c.Schedule.DigestAt = "09:00"
 	}
 }
 
@@ -202,17 +181,6 @@ func (c *Config) Validate() error {
 	if c.AutoStop.GraceMinutes < 0 {
 		errs = append(errs, errors.New("auto_stop.grace_minutes must be >= 0"))
 	}
-	for _, d := range []struct{ name, v string }{
-		{"schedule.health_every", c.Schedule.HealthEvery},
-		{"schedule.cost_every", c.Schedule.CostEvery},
-	} {
-		if dur, err := time.ParseDuration(d.v); err != nil || dur < time.Minute {
-			errs = append(errs, fmt.Errorf("%s must be a duration >= 1m, got %q", d.name, d.v))
-		}
-	}
-	if _, _, err := c.DigestTime(); err != nil {
-		errs = append(errs, err)
-	}
 	for name := range c.Apps {
 		if strings.TrimSpace(name) == "" || len(name) > 50 {
 			errs = append(errs, fmt.Errorf("app name %q must be 1-50 characters", name))
@@ -234,15 +202,6 @@ func (c *Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// DigestTime parses schedule.digest_at ("HH:MM").
-func (c *Config) DigestTime() (hour, minute int, err error) {
-	t, err := time.Parse("15:04", c.Schedule.DigestAt)
-	if err != nil {
-		return 0, 0, fmt.Errorf("schedule.digest_at must be HH:MM, got %q", c.Schedule.DigestAt)
-	}
-	return t.Hour(), t.Minute(), nil
 }
 
 // AppNames returns configured app names in sorted order.

@@ -1,4 +1,4 @@
-package bot
+package discord
 
 import (
 	"fmt"
@@ -8,11 +8,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	"cloud-control/internal/apps"
 	"cloud-control/internal/autostop"
-	"cloud-control/internal/format"
+	"cloud-control/internal/core"
 	"cloud-control/internal/provider"
-	"cloud-control/internal/service"
 	"cloud-control/internal/store"
 )
 
@@ -20,7 +18,7 @@ func (b *Bot) appOption() *discordgo.ApplicationCommandOption {
 	opt := &discordgo.ApplicationCommandOption{
 		Type: discordgo.ApplicationCommandOptionString, Name: "app", Description: "Only this app",
 	}
-	for _, n := range append(b.svc.Apps().Names(), apps.Unassigned) {
+	for _, n := range append(b.svc.Apps().Names(), core.Unassigned) {
 		opt.Choices = append(opt.Choices, &discordgo.ApplicationCommandOptionChoice{Name: n, Value: n})
 	}
 	return opt
@@ -33,9 +31,6 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 	for _, p := range b.svc.ProviderNames() {
 		provOpt.Choices = append(provOpt.Choices, &discordgo.ApplicationCommandOptionChoice{Name: p, Value: p})
 	}
-	refresh := &discordgo.ApplicationCommandOption{
-		Type: discordgo.ApplicationCommandOptionBoolean, Name: "refresh", Description: "Poll providers now instead of using the last poll",
-	}
 	resourceOpt := func(verb string) *discordgo.ApplicationCommandOption {
 		return &discordgo.ApplicationCommandOption{
 			Type: discordgo.ApplicationCommandOptionString, Name: "resource", Required: true, Autocomplete: true,
@@ -46,11 +41,11 @@ func (b *Bot) commands() []*discordgo.ApplicationCommand {
 	return []*discordgo.ApplicationCommand{
 		{Name: "ping", Description: "Health of the bot itself"},
 		{Name: "status", Description: "Every resource, grouped by app, with health",
-			Options: []*discordgo.ApplicationCommandOption{b.appOption(), refresh}},
+			Options: []*discordgo.ApplicationCommandOption{b.appOption()}},
 		{Name: "resources", Description: "List resources with IDs and available actions",
 			Options: []*discordgo.ApplicationCommandOption{provOpt, b.appOption()}},
 		{Name: "cost", Description: "Month-to-date spend and forecast, per provider and per app",
-			Options: []*discordgo.ApplicationCommandOption{b.appOption(), refresh}},
+			Options: []*discordgo.ApplicationCommandOption{b.appOption()}},
 		{Name: "stop", Description: "Stop a resource (asks for confirmation)",
 			Options: []*discordgo.ApplicationCommandOption{resourceOpt("stop")}},
 		{Name: "start", Description: "Start a resource (asks for confirmation)",
@@ -87,13 +82,6 @@ func (o opts) str(name string) string {
 	return ""
 }
 
-func (o opts) boolean(name string) bool {
-	if v, ok := o[name]; ok {
-		return v.BoolValue()
-	}
-	return false
-}
-
 func (o opts) integer(name string, def int) int {
 	if v, ok := o[name]; ok {
 		return int(v.IntValue())
@@ -107,11 +95,11 @@ func (b *Bot) handleCommand(i *discordgo.InteractionCreate) {
 	case "ping":
 		b.cmdPing(i)
 	case "status":
-		b.cmdStatus(i, o.str("app"), o.boolean("refresh"))
+		b.cmdStatus(i, o.str("app"))
 	case "resources":
 		b.cmdResources(i, o.str("provider"), o.str("app"))
 	case "cost":
-		b.cmdCost(i, o.str("app"), o.boolean("refresh"))
+		b.cmdCost(i, o.str("app"))
 	case "stop":
 		b.cmdControl(i, provider.ActionStop, o.str("resource"))
 	case "start":
@@ -139,7 +127,7 @@ func (b *Bot) groupByApp(rs []provider.Resource) ([]string, map[string][]provide
 		groups[appName(r.App)] = append(groups[appName(r.App)], r)
 	}
 	var order []string
-	for _, n := range append(b.svc.Apps().Names(), apps.Unassigned) {
+	for _, n := range append(b.svc.Apps().Names(), core.Unassigned) {
 		if len(groups[n]) > 0 {
 			order = append(order, n)
 		}
@@ -147,23 +135,18 @@ func (b *Bot) groupByApp(rs []provider.Resource) ([]string, map[string][]provide
 	return order, groups
 }
 
-func (b *Bot) cmdStatus(i *discordgo.InteractionCreate, app string, refresh bool) {
+func (b *Bot) cmdStatus(i *discordgo.InteractionCreate, app string) {
 	if !b.deferReply(i) {
 		return
 	}
 	ctx := b.ctx
-	if refresh {
-		if _, err := b.svc.PollHealth(ctx); err != nil {
-			b.log.Warn("health poll from /status", "err", err)
-		}
-	}
-	rs := service.Filter(b.svc.Inventory(ctx), app, "")
+	rs := core.Filter(b.svc.Inventory(ctx), app, "")
 	views, err := b.svc.HealthViews(ctx, rs)
 	if err != nil {
 		b.editReply(i, "❌ "+err.Error(), nil)
 		return
 	}
-	byID := map[string]service.HealthView{}
+	byID := map[string]core.HealthView{}
 	for _, v := range views {
 		byID[v.Resource.ID] = v
 	}
@@ -176,7 +159,7 @@ func (b *Bot) cmdStatus(i *discordgo.InteractionCreate, app string, refresh bool
 		for _, r := range groups[name] {
 			v := byID[r.ID]
 			worst = worse(worst, v.Health.State)
-			line := fmt.Sprintf("%s **%s** · %s/%s", format.HealthEmoji(v.Health.State), r.Name, r.Provider, r.Type)
+			line := fmt.Sprintf("%s **%s** · %s/%s", core.HealthEmoji(v.Health.State), r.Name, r.Provider, r.Type)
 			if r.Power == provider.PowerStopped {
 				line += " · _stopped_"
 			}
@@ -201,7 +184,7 @@ func (b *Bot) cmdResources(i *discordgo.InteractionCreate, prov, app string) {
 	if !b.deferReply(i) {
 		return
 	}
-	rs := service.Filter(b.svc.Inventory(b.ctx), app, prov)
+	rs := core.Filter(b.svc.Inventory(b.ctx), app, prov)
 	order, groups := b.groupByApp(rs)
 	limit := descLimit(len(order))
 	var embeds []*discordgo.MessageEmbed
@@ -234,23 +217,18 @@ func (b *Bot) cmdResources(i *discordgo.InteractionCreate, prov, app string) {
 	b.editReply(i, content, embeds)
 }
 
-func (b *Bot) cmdCost(i *discordgo.InteractionCreate, app string, refresh bool) {
+func (b *Bot) cmdCost(i *discordgo.InteractionCreate, app string) {
 	if !b.deferReply(i) {
 		return
 	}
 	ctx := b.ctx
-	var sum service.CostSummary
-	if refresh {
-		sum = b.svc.PollCost(ctx)
-	} else {
-		var err error
-		if sum, err = b.svc.CurrentCost(ctx); err != nil {
-			b.editReply(i, "❌ "+err.Error(), nil)
-			return
-		}
-		if len(sum.Reports) == 0 {
-			sum = b.svc.PollCost(ctx) // nothing stored this month yet
-		}
+	sum, err := b.svc.CurrentCost(ctx)
+	if err != nil {
+		b.editReply(i, "❌ "+err.Error(), nil)
+		return
+	}
+	if len(sum.Reports) == 0 {
+		sum = b.svc.PollCost(ctx) // nothing stored this month yet
 	}
 	cur := sum.Currency
 	e := &discordgo.MessageEmbed{Title: "💸 Cost — " + sum.Month, Color: costColor(sum.Percent)}
@@ -258,11 +236,11 @@ func (b *Bot) cmdCost(i *discordgo.InteractionCreate, app string, refresh bool) 
 		v := sum.ByApp[appKey(app)]
 		e.Title += " · " + app
 		e.Description = fmt.Sprintf("**MTD:** %s\n%.0f%% of the total %s budget",
-			format.Money(v, cur, sum.Estimated), pct(v, sum.Budget), format.Amount(sum.Budget, cur))
+			core.Money(v, cur, sum.Estimated), pct(v, sum.Budget), core.Amount(sum.Budget, cur))
 	} else {
 		e.Description = fmt.Sprintf("**MTD:** %s of %s (%.0f%%)\n%s\n**Forecast:** %s",
-			format.Money(sum.Total, cur, sum.Estimated), format.Amount(sum.Budget, cur), sum.Percent,
-			format.Bar(sum.Percent), format.Money(sum.Forecast, cur, sum.Estimated))
+			core.Money(sum.Total, cur, sum.Estimated), core.Amount(sum.Budget, cur), sum.Percent,
+			core.Bar(sum.Percent), core.Money(sum.Forecast, cur, sum.Estimated))
 		names := make([]string, 0, len(sum.Reports))
 		for n := range sum.Reports {
 			names = append(names, n)
@@ -271,13 +249,13 @@ func (b *Bot) cmdCost(i *discordgo.InteractionCreate, app string, refresh bool) 
 		for _, n := range names {
 			c := sum.Reports[n]
 			e.Fields = append(e.Fields, &discordgo.MessageEmbedField{Name: n, Inline: true,
-				Value: fmt.Sprintf("%s\nforecast %s\nas of %s", format.Money(c.MTD, c.Currency, c.Estimated),
-					format.Amount(c.Forecast, c.Currency), relTime(c.AsOf))})
+				Value: fmt.Sprintf("%s\nforecast %s\nas of %s", core.Money(c.MTD, c.Currency, c.Estimated),
+					core.Amount(c.Forecast, c.Currency), relTime(c.AsOf))})
 		}
 		var byApp []string
-		for _, n := range append(b.svc.Apps().Names(), apps.Unassigned) {
+		for _, n := range append(b.svc.Apps().Names(), core.Unassigned) {
 			if v, ok := sum.ByApp[appKey(n)]; ok {
-				byApp = append(byApp, fmt.Sprintf("**%s** %s", n, format.Amount(v, cur)))
+				byApp = append(byApp, fmt.Sprintf("**%s** %s", n, core.Amount(v, cur)))
 			}
 		}
 		if len(byApp) > 0 {
@@ -358,7 +336,7 @@ func (b *Bot) cmdAudit(i *discordgo.InteractionCreate, n int) {
 		if e.App != "" {
 			target = "[" + e.App + "] " + target
 		}
-		line := fmt.Sprintf("%s %s **%s** %s → %s", absTime(e.At), service.ActorMention(e.Actor), e.Action,
+		line := fmt.Sprintf("%s %s **%s** %s → %s", absTime(e.At), core.ActorMention(e.Actor), e.Action,
 			strings.TrimSpace(target), resultEmoji(e.Result)+e.Result)
 		if e.Detail != "" && e.Result == "error" {
 			line += " — " + clip(e.Detail, 100)
@@ -401,13 +379,13 @@ func (b *Bot) cmdAutoStop(i *discordgo.InteractionCreate, action, user string) {
 		if !st.Enabled {
 			state = "⚪ off"
 		}
-		spend := format.Money(sum.Total, sum.Currency, sum.Estimated) + fmt.Sprintf(" (%.0f%%)", sum.Percent)
+		spend := core.Money(sum.Total, sum.Currency, sum.Estimated) + fmt.Sprintf(" (%.0f%%)", sum.Percent)
 		if !sum.Known {
 			spend += " — ⚠️ incomplete, won't trigger"
 		}
 		run := "not triggered this month"
 		if st.Run != nil {
-			run = fmt.Sprintf("%s (spend %s)", st.Run.Status, format.Amount(st.Run.Spend, sum.Currency))
+			run = fmt.Sprintf("%s (spend %s)", st.Run.Status, core.Amount(st.Run.Spend, sum.Currency))
 			if st.Run.Status == store.RunPending {
 				run += " · runs " + relTime(st.Run.Deadline)
 			}
@@ -420,7 +398,7 @@ func (b *Bot) cmdAutoStop(i *discordgo.InteractionCreate, action, user string) {
 			Fields: []*discordgo.MessageEmbedField{
 				{Name: "State", Value: fmt.Sprintf("%s (%s)", state, st.Source), Inline: true},
 				{Name: "Dry run", Value: yesNo(st.DryRun), Inline: true},
-				{Name: "Threshold", Value: fmt.Sprintf("%.0f%% of %s", st.Threshold, format.Amount(sum.Budget, sum.Currency)), Inline: true},
+				{Name: "Threshold", Value: fmt.Sprintf("%.0f%% of %s", st.Threshold, core.Amount(sum.Budget, sum.Currency)), Inline: true},
 				{Name: "Grace", Value: st.Grace.String(), Inline: true},
 				{Name: "Current spend", Value: spend, Inline: true},
 				{Name: "This month", Value: run, Inline: true},
@@ -451,10 +429,10 @@ func (b *Bot) respondEmbed(i *discordgo.InteractionCreate, e *discordgo.MessageE
 
 // ---- small helpers ----
 
-func appName(app string) string { return apps.Display(app) }
+func appName(app string) string { return core.Display(app) }
 
 func appKey(display string) string {
-	if display == apps.Unassigned {
+	if display == core.Unassigned {
 		return ""
 	}
 	return display
@@ -525,8 +503,8 @@ func resultEmoji(r string) string {
 	return ""
 }
 
-func relTime(t time.Time) string { return format.RelTime(t) }
-func absTime(t time.Time) string { return format.AbsTime(t) }
+func relTime(t time.Time) string { return core.RelTime(t) }
+func absTime(t time.Time) string { return core.AbsTime(t) }
 
 func orDash(s string) string {
 	if s == "" {

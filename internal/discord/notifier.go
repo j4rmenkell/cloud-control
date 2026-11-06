@@ -1,4 +1,4 @@
-package bot
+package discord
 
 import (
 	"context"
@@ -6,12 +6,12 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	"cloud-control/internal/notify"
+	"cloud-control/internal/core"
 )
 
-// Send implements notify.Notifier, routing alerts to the app's own channel
+// Send implements core.Notifier, routing alerts to the app's own channel
 // when configured and falling back to the global alerts channel.
-func (b *Bot) Send(_ context.Context, t notify.Target, m notify.Message) error {
+func (b *Bot) Send(_ context.Context, t core.Target, m core.Message) error {
 	if b.session == nil {
 		return errors.New("discord session not open")
 	}
@@ -29,22 +29,22 @@ func (b *Bot) Send(_ context.Context, t notify.Target, m notify.Message) error {
 	return err
 }
 
-func (b *Bot) channelFor(t notify.Target) string {
+func (b *Bot) channelFor(t core.Target) string {
 	sec := b.cfg.Secrets
-	if t.Kind == notify.Digest {
+	if t.Kind == core.Digest {
 		return sec.DiscordDigestChannelID
 	}
 	return b.svc.Apps().AlertsChannel(t.App, sec.DiscordAlertsChannelID)
 }
 
-var styleColor = map[notify.Style]int{
-	notify.Info: 0x5865F2,
-	notify.Good: 0x57F287,
-	notify.Warn: 0xFEE75C,
-	notify.Bad:  0xED4245,
+var styleColor = map[core.Style]int{
+	core.Info: 0x5865F2,
+	core.Good: 0x57F287,
+	core.Warn: 0xFEE75C,
+	core.Bad:  0xED4245,
 }
 
-func toEmbed(m notify.Message) *discordgo.MessageEmbed {
+func toEmbed(m core.Message) *discordgo.MessageEmbed {
 	e := &discordgo.MessageEmbed{
 		Title:       clip(m.Title, 256),
 		Description: clip(m.Body, 4000),
@@ -62,7 +62,7 @@ func toEmbed(m notify.Message) *discordgo.MessageEmbed {
 	return e
 }
 
-func toComponents(bs []notify.Button) []discordgo.MessageComponent {
+func toComponents(bs []core.Button) []discordgo.MessageComponent {
 	if len(bs) == 0 {
 		return nil
 	}
