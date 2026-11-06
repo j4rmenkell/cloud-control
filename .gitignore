@@ -1,8 +1,68 @@
+# ---- Secrets & credentials (never commit) ----
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+# GCP service-account keys
+*service-account*.json
+*-sa.json
+gcp-key*.json
+credentials*.json
+# Local config overrides with real IDs (subscription, account, channel IDs)
+config.local.yaml
+config.*.local.yaml
+
+# ---- Local data ----
 *.db
 *.db-shm
 *.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3
+data/
+
+# ---- Build output ----
 /cloud-control
 /cloud-control.exe
-*.json.key
-gcp-key*.json
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# ---- Go tooling ----
+*.test
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+go.work
+go.work.sum
+vendor/
+__debug_bin*
+
+# ---- Logs & temp ----
+*.log
+logs/
+tmp/
+*.tmp
+
+# ---- Editors & OS ----
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Claude Code local settings ----
+.claude/settings.local.json
