@@ -1,0 +1,8 @@
+.env
+*.db
+*.db-shm
+*.db-wal
+/cloud-control
+/cloud-control.exe
+*.json.key
+gcp-key*.json

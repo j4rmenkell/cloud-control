@@ -1,0 +1,51 @@
+timezone: Asia/Manila
+currency: USD
+monthly_budget: 20
+budget_alerts: [50, 80, 100]    # percent of monthly_budget; each fires once per month
+critical_resources: []          # resource IDs (or "provider/name") auto-stop never touches
+database: cloud-control.db
+
+auto_stop:
+  enabled: true
+  dry_run: true                 # flip to false after testing
+  threshold_percent: 100
+  grace_minutes: 15
+
+# Apps group resources across providers. A resource belongs to the first app
+# (alphabetically) that lists it under `resources` or whose `match_tags` all
+# match. Resources matching no app show up as "unassigned".
+apps:
+  aquascale:
+    match_tags: { app: aquascale }      # Azure tags; tag your resources app=aquascale
+    resources: []                       # untaggable things, e.g. cloudflare/aquascale-uploads, resend/aquascale.io
+    alerts_channel_id: ""               # optional per-app alerts channel; empty = DISCORD_ALERTS_CHANNEL_ID
+    critical: false                     # true = auto-stop never touches this app
+  buddibucks:
+    match_tags: { app: buddibucks }
+
+schedule:
+  health_every: 5m
+  cost_every: 6h
+  digest_at: "09:00"            # in `timezone`
+
+dev:
+  fake_provider: true           # demo resources; turn off once real providers are configured
+
+azure:
+  subscription_id: ""
+  health_paths:
+    aquascale-api: /health
+gcp:
+  project_id: ""
+  vision:
+    free_units_per_month: 1000
+    price_per_1000: 1.50
+cloudflare:
+  account_id: ""
+  r2_buckets: []
+  pricing:
+    storage_gb_month: 0.015
+    free_storage_gb: 10
+resend:
+  domains: []
+  monthly_plan_cost: 0
