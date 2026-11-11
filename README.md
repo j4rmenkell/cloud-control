@@ -4,9 +4,11 @@ Discovers cloud resources, checks their health, tracks month-to-date cost, and
 lets the owner stop/start resources from a private Discord server, with budget
 auto-stop.
 
-**Status (v0.1 in progress):** core, Discord bot, scheduled jobs and auto-stop
-run end-to-end on the fake provider. Azure, GCP, Cloudflare and Resend
-providers are not implemented yet.
+**Status:** migrating to serverless (AWS Lambda + EventBridge + DynamoDB,
+Terraform). See [ADR 0001](docs/adr/0001-move-to-serverless.md). The hosted
+version described below is tagged `v0.1-hosted`. It runs end-to-end on the
+fake provider. Azure, GCP, Cloudflare and Resend providers are not implemented
+yet.
 
 ```mermaid
 flowchart LR
