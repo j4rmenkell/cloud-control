@@ -66,3 +66,13 @@ desktop.ini
 
 # ---- Claude Code local settings ----
 .claude/settings.local.json
+
+# ---- Lambda build & Terraform ----
+/build/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+*.tfvars
+!*.tfvars.example

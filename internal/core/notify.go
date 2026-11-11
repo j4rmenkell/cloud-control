@@ -88,3 +88,9 @@ func (r *Recorder) Reset() {
 	r.Sent = nil
 	r.mu.Unlock()
 }
+
+// Discard is a Notifier that drops every message. The Lambda uses it until
+// the Discord REST notifier lands (milestone 3).
+type Discard struct{}
+
+func (Discard) Send(context.Context, Target, Message) error { return nil }

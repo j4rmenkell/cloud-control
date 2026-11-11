@@ -87,6 +87,8 @@ type Resend struct {
 
 type Secrets struct {
 	DiscordBotToken        string
+	DiscordApplicationID   string
+	DiscordPublicKey       string
 	DiscordGuildID         string
 	DiscordAlertsChannelID string
 	DiscordDigestChannelID string
@@ -157,6 +159,8 @@ func (c *Config) applyDefaults() {
 func SecretsFromEnv() Secrets {
 	return Secrets{
 		DiscordBotToken:        os.Getenv("DISCORD_BOT_TOKEN"),
+		DiscordApplicationID:   os.Getenv("DISCORD_APPLICATION_ID"),
+		DiscordPublicKey:       os.Getenv("DISCORD_PUBLIC_KEY"),
 		DiscordGuildID:         os.Getenv("DISCORD_GUILD_ID"),
 		DiscordAlertsChannelID: os.Getenv("DISCORD_ALERTS_CHANNEL_ID"),
 		DiscordDigestChannelID: os.Getenv("DISCORD_DIGEST_CHANNEL_ID"),

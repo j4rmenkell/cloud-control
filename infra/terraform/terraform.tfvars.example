@@ -1,0 +1,5 @@
+# Normally not needed: scripts/deploy.sh passes these from .env.
+# To run terraform by hand instead, copy to terraform.tfvars (gitignored).
+discord_public_key    = "64 hex chars from Developer Portal → General Information"
+owner_discord_user_id = "your Discord user ID"
+discord_guild_id      = "your Discord server ID"
