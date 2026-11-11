@@ -160,10 +160,7 @@ func (b *Bot) cmdStatus(i *discordgo.InteractionCreate, app string) {
 			v := byID[r.ID]
 			worst = worse(worst, v.Health.State)
 			line := fmt.Sprintf("%s **%s** · %s/%s", core.HealthEmoji(v.Health.State), r.Name, r.Provider, r.Type)
-			if r.Power == provider.PowerStopped {
-				line += " · _stopped_"
-			}
-			if v.Health.State != provider.Healthy && v.Health.Detail != "" {
+			if v.Health.State != provider.Healthy && v.Health.State != provider.Stopped && v.Health.Detail != "" {
 				line += "\n  ↳ " + clip(v.Health.Detail, 120)
 			}
 			lines = append(lines, line)
@@ -453,7 +450,7 @@ func descLimit(n int) int {
 	return min(4000, 5000/n)
 }
 
-var severity = map[provider.HealthState]int{provider.Healthy: 0, provider.Unknown: 1, provider.Degraded: 2, provider.Down: 3}
+var severity = map[provider.HealthState]int{provider.Healthy: 0, provider.Stopped: 0, provider.Unknown: 1, provider.Degraded: 2, provider.Down: 3}
 
 func worse(a, b provider.HealthState) provider.HealthState {
 	if severity[b] > severity[a] {

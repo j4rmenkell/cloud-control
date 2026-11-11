@@ -22,10 +22,13 @@ import (
 )
 
 func main() {
-	cfgPath := flag.String("config", "config.yaml", "path to config.yaml")
+	cfgPath := flag.String("config", "", "path to the config file (default: config.local.yaml if present, else config.yaml)")
 	envPath := flag.String("env", ".env", "path to .env (optional)")
 	debug := flag.Bool("debug", false, "debug logging")
 	flag.Parse()
+	if *cfgPath == "" {
+		*cfgPath = config.DefaultPath(".")
+	}
 
 	level := slog.LevelInfo
 	if *debug {
@@ -48,7 +51,8 @@ func run(cfgPath, envPath string, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	st, err := store.Open(ctx, cfg.Database)
+	log.Info("loaded config", "path", cfgPath)
+	st, err := store.OpenSQLite(ctx, cfg.Database)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}

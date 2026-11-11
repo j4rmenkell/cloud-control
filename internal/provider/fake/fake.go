@@ -108,7 +108,7 @@ func (p *Provider) Health(_ context.Context, r provider.Resource) (provider.Heal
 		return provider.HealthStatus{State: provider.Unknown, Detail: "not found", CheckedAt: p.now()}, nil
 	}
 	if p.powerLocked(r.ID) == provider.PowerStopped {
-		return provider.HealthStatus{State: provider.Down, Detail: "stopped", CheckedAt: p.now()}, nil
+		return provider.HealthStatus{State: provider.Stopped, Detail: "stopped", CheckedAt: p.now()}, nil
 	}
 	return provider.HealthStatus{State: st, Detail: "fake", CheckedAt: p.now()}, nil
 }
@@ -176,11 +176,11 @@ func (p *Provider) powerLocked(id string) provider.PowerState {
 func Demo() *Provider {
 	p := New("fake")
 	p.AddResource(provider.Resource{ID: "fake:aca:aquascale-api", Type: "containerapp", Name: "aquascale-api",
-		Region: "southeastasia", Tags: map[string]string{"app": "aquascale"}, Power: provider.PowerRunning})
-	p.AddResource(provider.Resource{ID: "fake:swa:aquascale-web", Type: "staticwebapp", Name: "aquascale-web",
-		Region: "eastasia", Tags: map[string]string{"app": "aquascale"}})
+		Region: "southeastasia", Tags: map[string]string{"project": "aquascale"}, Power: provider.PowerRunning})
+	p.AddResource(provider.Resource{ID: "fake:swa:aquascale-portal", Type: "staticwebapp", Name: "aquascale-portal",
+		Region: "eastasia", Tags: map[string]string{"project": "aquascale"}})
 	p.AddResource(provider.Resource{ID: "fake:aca:buddibucks-worker", Type: "containerapp", Name: "buddibucks-worker",
-		Region: "southeastasia", Tags: map[string]string{"app": "buddibucks"}, Power: provider.PowerRunning})
+		Region: "southeastasia", Tags: map[string]string{"project": "buddibucks"}, Power: provider.PowerRunning})
 	p.AddResource(provider.Resource{ID: "fake:r2:scratch", Type: "r2bucket", Name: "scratch"})
 	p.SetCost(provider.CostReport{MTD: 4.20, Forecast: 9.80, ByResource: map[string]float64{
 		"fake:aca:aquascale-api": 3.00, "fake:aca:buddibucks-worker": 1.10,

@@ -13,14 +13,21 @@ auto_stop:
 # Apps group resources across providers. A resource belongs to the first app
 # (alphabetically) that lists it under `resources` or whose `match_tags` all
 # match. Resources matching no app show up as "unassigned".
+# Channel IDs go in config.local.yaml (gitignored), not here.
 apps:
   aquascale:
-    match_tags: { app: aquascale }      # Azure tags; tag your resources app=aquascale
-    resources: []                       # untaggable things, e.g. cloudflare/aquascale-uploads, resend/aquascale.io
-    alerts_channel_id: ""               # optional per-app alerts channel; empty = DISCORD_ALERTS_CHANNEL_ID
+    match_tags: { project: aquascale }  # for resources tagged project=aquascale
+    resources:                          # listed by name until the Azure resources are tagged
+      - azure/aquascale-api-staging
+      - azure/aquascale-portal-staging
+      - azure/aquascale-backoffice-staging
+    alerts_channel_id: ""               # #aquascale-alerts; empty = DISCORD_ALERTS_CHANNEL_ID
     critical: false                     # true = auto-stop never touches this app
   buddibucks:
-    match_tags: { app: buddibucks }
+    match_tags: { project: buddibucks } # not deployed on Azure; add its resources once its provider exists
+  library:                              # C:\library-system, deployed as Azure Container App ca-athenaeum
+    match_tags: { project: athenaeum }  # ca-athenaeum is tagged by library-system's Terraform
+    alerts_channel_id: ""               # #library-alerts
 
 dev:
   fake_provider: true           # demo resources; turn off once real providers are configured
@@ -28,7 +35,7 @@ dev:
 azure:
   subscription_id: ""
   health_paths:
-    aquascale-api: /health
+    aquascale-api-staging: /health
 gcp:
   project_id: ""
   vision:

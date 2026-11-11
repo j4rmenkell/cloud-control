@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,13 +10,14 @@ import (
 	"cloud-control/internal/provider"
 	"cloud-control/internal/provider/fake"
 	"cloud-control/internal/store"
+	"cloud-control/internal/store/memstore"
 )
 
 type harness struct {
 	svc  *Service
 	fake *fake.Provider
 	rec  *Recorder
-	st   *store.Store
+	st   store.Store
 }
 
 func setup(t *testing.T) *harness {
@@ -26,17 +26,13 @@ func setup(t *testing.T) *harness {
 timezone: Asia/Manila
 monthly_budget: 20
 apps:
-  aquascale: { match_tags: { app: aquascale }, alerts_channel_id: "aq" }
-  buddibucks: { match_tags: { app: buddibucks } }
+  aquascale: { match_tags: { project: aquascale }, alerts_channel_id: "aq" }
+  buddibucks: { match_tags: { project: buddibucks } }
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := memstore.New()
 	f := fake.Demo()
 	rec := &Recorder{}
 	svc := New(Options{Config: cfg, Store: st, Apps: NewResolver(cfg), Notifier: rec, Providers: []provider.Provider{f}})
@@ -184,5 +180,61 @@ func TestDigestGroupsByApp(t *testing.T) {
 	}
 	if strings.Join(names, ",") != "aquascale,buddibucks,unassigned" {
 		t.Errorf("fields = %v", names)
+	}
+}
+
+func TestShouldAlert(t *testing.T) {
+	H, D, G, S, U := provider.Healthy, provider.Down, provider.Degraded, provider.Stopped, provider.Unknown
+	cases := []struct {
+		prev    provider.HealthState
+		hadPrev bool
+		now     provider.HealthState
+		want    bool
+		why     string
+	}{
+		{"", false, H, false, "first sight, healthy"},
+		{"", false, S, false, "first sight, already stopped (e.g. stopped to save cost)"},
+		{"", false, D, true, "first sight, down"},
+		{H, true, H, false, "no change"},
+		{D, true, D, false, "still down: no repeat page"},
+		{H, true, D, true, "outage"},
+		{H, true, G, true, "degraded"},
+		{D, true, H, true, "recovery"},
+		{H, true, S, false, "stopped on purpose"},
+		{S, true, H, false, "started normally"},
+		{S, true, D, true, "started but broken"},
+		{H, true, U, true, "check failing: worth knowing"},
+	}
+	for _, c := range cases {
+		if got := shouldAlert(c.prev, c.hadPrev, c.now); got != c.want {
+			t.Errorf("%s: shouldAlert(%q, %v, %q) = %v, want %v", c.why, c.prev, c.hadPrev, c.now, got, c.want)
+		}
+	}
+}
+
+func TestStoppingAndStartingStayQuiet(t *testing.T) {
+	h := setup(t)
+	ctx := context.Background()
+	h.svc.PollHealth(ctx) //nolint:errcheck
+	r, _ := h.svc.Find(ctx, "fake/aquascale-api")
+
+	if err := h.svc.Control(ctx, "42", r, provider.ActionStop); err != nil {
+		t.Fatal(err)
+	}
+	h.rec.Reset()
+	if ts, _ := h.svc.PollHealth(ctx); len(ts) != 0 {
+		t.Fatalf("stopping produced health alerts: %+v", ts)
+	}
+	views, _ := h.svc.HealthViews(ctx, []provider.Resource{r})
+	if views[0].Health.State != provider.Stopped {
+		t.Errorf("state = %q, want stopped", views[0].Health.State)
+	}
+
+	r, _ = h.svc.Find(ctx, "fake/aquascale-api")
+	if err := h.svc.Control(ctx, "42", r, provider.ActionStart); err != nil {
+		t.Fatal(err)
+	}
+	if ts, _ := h.svc.PollHealth(ctx); len(ts) != 0 {
+		t.Fatalf("a normal start produced health alerts: %+v", ts)
 	}
 }

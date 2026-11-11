@@ -39,7 +39,7 @@ type Timer interface{ Stop() bool }
 
 type Options struct {
 	Config    *config.Config
-	Store     *store.Store
+	Store     store.Store
 	Apps      *core.Resolver
 	Control   Controller
 	Notifier  core.Notifier
@@ -50,7 +50,7 @@ type Options struct {
 
 type Engine struct {
 	cfg       *config.Config
-	store     *store.Store
+	store     store.Store
 	apps      *core.Resolver
 	ctl       Controller
 	notifier  core.Notifier

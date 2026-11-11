@@ -36,6 +36,8 @@ func HealthEmoji(s provider.HealthState) string {
 		return "🟡"
 	case provider.Down:
 		return "🔴"
+	case provider.Stopped:
+		return "⏸️"
 	}
 	return "⚪"
 }

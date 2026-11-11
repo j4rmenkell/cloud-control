@@ -32,7 +32,7 @@ flowchart LR
 | `cmd/cloud-control` | wiring and the three cron jobs (health 5 min, cost 6 h, digest 09:00) |
 | `internal/config` | `config.yaml` + `.env` |
 | `internal/provider` | the `Provider` interface; `fake/` for tests and local dev |
-| `internal/store` | SQLite persistence |
+| `internal/store` | `Store` interface; SQLite, in-memory (`memstore`) and a shared contract test suite (`storetest`) |
 | `internal/core` | inventory, app grouping, health, cost, budget alerts, audited control |
 | `internal/autostop` | budget auto-stop state machine |
 | `internal/discord` | slash commands, buttons, owner check, alert rendering |
@@ -56,9 +56,13 @@ the global `#alerts`.
 ## Setup
 
 ```bash
-cp .env.example .env   # fill in the Discord IDs and bot token
+cp .env.example .env                 # fill in the Discord IDs and bot token
+cp config.yaml config.local.yaml     # optional: real channel/subscription IDs go here
 go run ./cmd/cloud-control
 ```
+
+`config.local.yaml` and `.env` are gitignored. When `config.local.yaml` exists
+it is used instead of `config.yaml`, so the committed file never holds real IDs.
 
 The Discord bot needs the `applications.commands` and `bot` scopes, with
 permission to send messages and embeds in the alert and digest channels.

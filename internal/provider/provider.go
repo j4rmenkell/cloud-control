@@ -65,6 +65,9 @@ const (
 	Degraded HealthState = "degraded"
 	Down     HealthState = "down"
 	Unknown  HealthState = "unknown"
+	// Stopped means intentionally stopped (by the owner, auto-stop, or outside
+	// cloud-control). It is not an outage, so it never pages anyone.
+	Stopped HealthState = "stopped"
 )
 
 // HealthStatus is the result of one health check.

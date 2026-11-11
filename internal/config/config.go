@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -212,4 +213,16 @@ func (c *Config) AppNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// LocalPath is the gitignored config with real IDs (channels, subscription).
+// It is a full copy of config.yaml, not an overlay.
+const LocalPath = "config.local.yaml"
+
+// DefaultPath returns LocalPath if it exists in dir, otherwise config.yaml.
+func DefaultPath(dir string) string {
+	if _, err := os.Stat(filepath.Join(dir, LocalPath)); err == nil {
+		return filepath.Join(dir, LocalPath)
+	}
+	return filepath.Join(dir, "config.yaml")
 }

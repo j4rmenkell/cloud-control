@@ -3,7 +3,6 @@ package autostop
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +13,7 @@ import (
 	"cloud-control/internal/provider"
 	"cloud-control/internal/provider/fake"
 	"cloud-control/internal/store"
+	"cloud-control/internal/store/memstore"
 )
 
 // ---- manual clock and timers ----
@@ -79,7 +79,7 @@ func (ts *timers) FireAll() int {
 
 type harness struct {
 	cfg    *config.Config
-	st     *store.Store
+	st     store.Store
 	fake   *fake.Provider
 	rec    *core.Recorder
 	svc    *core.Service
@@ -96,24 +96,19 @@ auto_stop:
   threshold_percent: 100
   grace_minutes: 15
 apps:
-  aquascale: { match_tags: { app: aquascale }, critical: true }
-  buddibucks: { match_tags: { app: buddibucks } }
+  aquascale: { match_tags: { project: aquascale }, critical: true }
+  buddibucks: { match_tags: { project: buddibucks } }
 `
 
-func setup(t *testing.T, extraYAML string, dbPath string) *harness {
+func setup(t *testing.T, extraYAML string, st store.Store) *harness {
 	t.Helper()
 	cfg, err := config.Parse([]byte(baseYAML + extraYAML))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dbPath == "" {
-		dbPath = filepath.Join(t.TempDir(), "t.db")
+	if st == nil {
+		st = memstore.New()
 	}
-	st, err := store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
 	clk := &clock{now: time.Date(2026, 11, 20, 10, 0, 0, 0, cfg.Location)}
 	f := fake.Demo()
 	// A second running, non-critical, unassigned resource.
@@ -163,7 +158,7 @@ func findTitle(msgs []core.Sent, sub string) *core.Message {
 // ---- tests ----
 
 func TestBelowThresholdDoesNothing(t *testing.T) {
-	h := setup(t, "  # armed\n", "")
+	h := setup(t, "", nil)
 	h.spend(19.99)
 	h.svc.PollCost(context.Background())
 	if run, _ := h.st.Run(context.Background(), "2026-11"); run != nil {
@@ -172,7 +167,7 @@ func TestBelowThresholdDoesNothing(t *testing.T) {
 }
 
 func TestDryRunWarnsButNeverStops(t *testing.T) {
-	h := setup(t, "", "") // dry_run defaults to true
+	h := setup(t, "", nil) // dry_run defaults to true
 	ctx := context.Background()
 	h.spend(20)
 	h.svc.PollCost(ctx)
@@ -207,9 +202,9 @@ func TestDryRunWarnsButNeverStops(t *testing.T) {
 	}
 }
 
-func armed(t *testing.T, dbPath string) *harness {
+func armed(t *testing.T, st store.Store) *harness {
 	t.Helper()
-	return setup(t, "", dbPath).withDryRun(false)
+	return setup(t, "", st).withDryRun(false)
 }
 
 func (h *harness) withDryRun(v bool) *harness {
@@ -218,7 +213,7 @@ func (h *harness) withDryRun(v bool) *harness {
 }
 
 func TestArmedRun(t *testing.T) {
-	h := armed(t, "")
+	h := armed(t, nil)
 	ctx := context.Background()
 	h.fake.SetDoErr("fake:aca:buddibucks-worker", errors.New("arm 409"))
 	h.spend(25)
@@ -267,7 +262,7 @@ func TestArmedRun(t *testing.T) {
 }
 
 func TestCancelSkipsRestOfMonthUntilReenabled(t *testing.T) {
-	h := armed(t, "")
+	h := armed(t, nil)
 	ctx := context.Background()
 	h.spend(25)
 	h.svc.PollCost(ctx)
@@ -305,7 +300,7 @@ func TestCancelSkipsRestOfMonthUntilReenabled(t *testing.T) {
 }
 
 func TestDisabledAndUnknownNeverTrigger(t *testing.T) {
-	h := armed(t, "")
+	h := armed(t, nil)
 	ctx := context.Background()
 	h.spend(100)
 	h.fake.SetCostErr(errors.New("billing down"))
@@ -328,15 +323,14 @@ func TestDisabledAndUnknownNeverTrigger(t *testing.T) {
 }
 
 func TestGraceTimerSurvivesRestart(t *testing.T) {
-	db := filepath.Join(t.TempDir(), "shared.db")
-	h1 := armed(t, db)
+	shared := memstore.New() // outlives both "processes", like the real database
+	h1 := armed(t, shared)
 	ctx := context.Background()
 	h1.spend(25)
 	h1.svc.PollCost(ctx)
 	h1.engine.Stop() // process dies before the deadline
-	h1.st.Close()
 
-	h2 := armed(t, db) // restart: Start() resumes the pending run
+	h2 := armed(t, shared) // restart: Start() resumes the pending run
 	if n := h2.timers.FireAll(); n != 1 {
 		t.Fatalf("resumed %d timers", n)
 	}
@@ -347,7 +341,7 @@ func TestGraceTimerSurvivesRestart(t *testing.T) {
 }
 
 func TestNewMonthCanFireAgain(t *testing.T) {
-	h := armed(t, "")
+	h := armed(t, nil)
 	ctx := context.Background()
 	h.spend(25)
 	h.svc.PollCost(ctx)

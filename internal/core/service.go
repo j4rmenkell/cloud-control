@@ -31,7 +31,7 @@ type CostHook interface {
 
 type Service struct {
 	cfg       *config.Config
-	store     *store.Store
+	store     store.Store
 	apps      *Resolver
 	notifier  Notifier
 	log       *slog.Logger
@@ -49,7 +49,7 @@ type Service struct {
 
 type Options struct {
 	Config    *config.Config
-	Store     *store.Store
+	Store     store.Store
 	Apps      *Resolver
 	Notifier  Notifier
 	Logger    *slog.Logger
@@ -78,7 +78,7 @@ func New(o Options) *Service {
 func (s *Service) SetCostHook(h CostHook) { s.hook = h }
 
 func (s *Service) Config() *config.Config { return s.cfg }
-func (s *Service) Store() *store.Store    { return s.store }
+func (s *Service) Store() store.Store     { return s.store }
 func (s *Service) Apps() *Resolver        { return s.apps }
 func (s *Service) ProviderNames() []string {
 	return append([]string(nil), s.order...)
@@ -243,9 +243,7 @@ func (s *Service) PollHealth(ctx context.Context) ([]Transition, error) {
 		if err != nil {
 			return nil, err
 		}
-		changed := hadPrev && prev != res.h.State
-		firstBad := !hadPrev && (res.h.State == provider.Down || res.h.State == provider.Degraded)
-		if changed || firstBad {
+		if shouldAlert(prev, hadPrev, res.h.State) {
 			from := prev
 			if !hadPrev {
 				from = ""
@@ -321,6 +319,23 @@ func (s *Service) alertTransitions(ctx context.Context, ts []Transition) {
 			Title: title, Body: strings.Join(lines, "\n"), Style: style,
 		})
 	}
+}
+
+// shouldAlert decides whether a health change is worth a message. Only
+// changes are reported, never repeats. Stopping and normal starts are
+// already announced by the control action or auto-stop, so they stay quiet.
+func shouldAlert(prev provider.HealthState, hadPrev bool, now provider.HealthState) bool {
+	switch {
+	case !hadPrev:
+		return now == provider.Down || now == provider.Degraded
+	case prev == now:
+		return false
+	case now == provider.Stopped:
+		return false
+	case prev == provider.Stopped && now == provider.Healthy:
+		return false
+	}
+	return true
 }
 
 // HealthView pairs resources with their latest health.
@@ -589,9 +604,10 @@ func (s *Service) Digest(ctx context.Context) error {
 		if !ok && !hasCost {
 			continue
 		}
-		val := fmt.Sprintf("%s %d  %s %d  %s %d  %s %d\nMTD %s",
+		val := fmt.Sprintf("%s %d  %s %d  %s %d  %s %d  %s %d\nMTD %s",
 			HealthEmoji(provider.Healthy), c[provider.Healthy], HealthEmoji(provider.Degraded), c[provider.Degraded],
-			HealthEmoji(provider.Down), c[provider.Down], HealthEmoji(provider.Unknown), c[provider.Unknown],
+			HealthEmoji(provider.Down), c[provider.Down], HealthEmoji(provider.Stopped), c[provider.Stopped],
+			HealthEmoji(provider.Unknown), c[provider.Unknown],
 			Amount(cost, sum.Currency))
 		msg.Fields = append(msg.Fields, Field{Name: app, Value: val, Inline: true})
 	}

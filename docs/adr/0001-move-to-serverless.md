@@ -122,10 +122,20 @@ so a run can never execute twice.
    (dry run first).
 5. **Production hardening:** `dynamostore`, GitHub Actions with OIDC deploy,
    AWS Budget alarm, CloudWatch alarms and dashboard, reserved concurrency.
-6. **Azure provider:** Resource Graph, Container Apps health + start/stop,
-   Cost Management; least-privilege service principal.
-7. **GCP, Cloudflare and Resend providers.**
-8. **SRE polish:** SLOs, runbooks, a game day + postmortem, README with a demo GIF.
+6. **GitHub provider:** workflow health (latest run on the default branch),
+   Actions minutes against the free quota, and real cost from the billing
+   usage API, using a read-only fine-grained token. It comes first because it
+   needs no cloud credentials and covers every app's CI.
+7. **Azure provider:** Resource Graph, Container Apps health + start/stop,
+   Static Web Apps, Cost Management; least-privilege service principal.
+   Also TLS certificate expiry checks on custom domains (warn at 21 days).
+8. **GCP, Cloudflare and Resend providers.**
+9. **SRE polish:** SLOs, runbooks, a game day + postmortem, README with a demo GIF.
+
+**Health states:** besides healthy/degraded/down/unknown there is `stopped`,
+for resources that are intentionally off (e.g. Container Apps stopped to save
+cost). Stopping, and a normal start afterwards, never page; a stopped resource
+that comes back unhealthy does.
 
 ## SLOs (initial)
 

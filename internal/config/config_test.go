@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -21,7 +22,7 @@ func TestRepoConfigParses(t *testing.T) {
 	if !cfg.AutoStop.IsDryRun() {
 		t.Error("committed config must default to dry run")
 	}
-	if got := cfg.AppNames(); len(got) != 2 || got[0] != "aquascale" {
+	if got := strings.Join(cfg.AppNames(), ","); got != "aquascale,buddibucks,library" {
 		t.Errorf("apps = %v", got)
 	}
 	cfg.Secrets = Secrets{DiscordBotToken: "t", DiscordGuildID: "g", DiscordAlertsChannelID: "a",
@@ -73,5 +74,18 @@ func TestValidateReportsMissingSecretsAndBadValues(t *testing.T) {
 func TestUnknownFieldRejected(t *testing.T) {
 	if _, err := Parse([]byte("monthly_budget: 10\nmonthly_budjet: 5\n")); err == nil {
 		t.Error("typo'd key should be rejected")
+	}
+}
+
+func TestDefaultPathPrefersLocal(t *testing.T) {
+	dir := t.TempDir()
+	if got := DefaultPath(dir); got != filepath.Join(dir, "config.yaml") {
+		t.Errorf("without local file: %s", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, LocalPath), []byte("monthly_budget: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := DefaultPath(dir); got != filepath.Join(dir, LocalPath) {
+		t.Errorf("with local file: %s", got)
 	}
 }
